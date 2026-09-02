@@ -14,3 +14,7 @@ serde_json = "1.0.151"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(compile_fail)'] }
+
+[[test]]
+name = "cfail"
+harness = false

@@ -1,4 +1,3 @@
-use core::error::Error;
 use std::{
     env,
     path::{Path, PathBuf},
@@ -10,11 +9,18 @@ use serde_json::Value;
 
 use crate::annotation::AnnotationCollector;
 
-pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+macro_rules! err {
+    ($($t:tt)*) => {
+        crate::Error::from(format!($($t)*))
+    };
+}
 
 macro_rules! bail {
     ($($t:tt)*) => {
-        return Err(format!($($t)*).into())
+        return Err(err!($($t)*))
     };
 }
 

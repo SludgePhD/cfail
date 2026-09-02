@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeSet, HashMap},
     ffi::OsStr,
-    fmt, fs,
+    fmt,
+    fs::{self, File},
+    io::{BufReader, prelude::BufRead},
     path::{Path, PathBuf},
     process::Stdio,
 };
@@ -10,6 +12,7 @@ use serde::Deserialize;
 
 use crate::cargo;
 
+#[derive(Debug)]
 pub(crate) struct AnnotationCollector {
     search_dirs: BTreeSet<PathBuf>,
     excluded_prefixes: Vec<PathBuf>,
@@ -39,7 +42,10 @@ impl AnnotationCollector {
     }
 
     pub(crate) fn exclude_dir(&mut self, path: &Path) -> crate::Result<&mut Self> {
-        self.excluded_prefixes.push(path.canonicalize()?);
+        self.excluded_prefixes.push(
+            path.canonicalize()
+                .map_err(|e| err!("failed to canonicalize '{}': {e}", path.display()))?,
+        );
         Ok(self)
     }
 
@@ -47,7 +53,10 @@ impl AnnotationCollector {
     where
         U: Default,
     {
+        eprintln!("collecting cfail annotations: {self:?}");
+
         let vec = self.collect_annotations_vec()?;
+        eprintln!("found {} annotations: {vec:?}", vec.len());
 
         if vec.is_empty() {
             bail!(
@@ -93,7 +102,8 @@ impl AnnotationCollector {
             if ty.is_dir() {
                 self.collect_annotations_in(&path, out)?;
             } else if path.extension() == Some(OsStr::new("rs")) {
-                for (i, line) in fs::read_to_string(&path)?.lines().enumerate() {
+                for (i, res) in BufReader::new(File::open(&path)?).lines().enumerate() {
+                    let line = res?;
                     let lineno = i + 1;
                     if let Some((_, ann)) = line.rsplit_once("//~") {
                         let loc = Location {
@@ -127,8 +137,16 @@ impl Diagnostic {
                 code: code_string.to_string(),
                 userdata: (),
             }),
-            None => bail!("{loc}: malformed cfail annotation; syntax: `Ennnn`"),
+            None => bail!("{loc}: malformed cfail annotation; syntax: `//~ E0123`"),
         }
+    }
+}
+
+impl fmt::Debug for Diagnostic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Diagnostic")
+            .field("code", &self.code)
+            .finish_non_exhaustive()
     }
 }
 
@@ -156,7 +174,7 @@ impl<U> AnnotationMap<U> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub(crate) struct Location {
     file: PathBuf,
     line: usize,
@@ -165,6 +183,11 @@ pub(crate) struct Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.file.display(), self.line)
+    }
+}
+impl fmt::Debug for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -178,8 +201,9 @@ impl Metadata {
     fn get() -> crate::Result<Self> {
         let output = cargo()
             .args(["metadata", "--format-version=1", "--no-deps"])
-            .stderr(Stdio::inherit())
-            .output()?;
+            .stderr(Stdio::inherit()) // forward error output
+            .output()
+            .map_err(|e| err!("failed to run `cargo metadata`: {e}"))?;
         if !output.status.success() {
             bail!("`cargo metadata` exited with error: {}", output.status);
         }
