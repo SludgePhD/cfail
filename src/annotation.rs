@@ -10,7 +10,7 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::cargo;
+use crate::{cargo, util::PathExt};
 
 #[derive(Debug)]
 pub(crate) struct AnnotationCollector {
@@ -31,21 +31,18 @@ impl AnnotationCollector {
             for tgt in &pkg.targets {
                 let path = Path::new(&tgt.src_path);
                 let dir = path.parent().unwrap_or(Path::new("."));
-                dirs.insert(dir.to_path_buf());
+                dirs.insert(dir.canon()?);
             }
         }
 
         Ok(Self {
             search_dirs: dirs,
-            excluded_prefixes: vec![PathBuf::from(meta.target_directory)],
+            excluded_prefixes: vec![Path::new(&meta.target_directory).canon()?],
         })
     }
 
     pub(crate) fn exclude_dir(&mut self, path: &Path) -> crate::Result<&mut Self> {
-        self.excluded_prefixes.push(
-            path.canonicalize()
-                .map_err(|e| err!("failed to canonicalize '{}': {e}", path.display()))?,
-        );
+        self.excluded_prefixes.push(path.canon()?);
         Ok(self)
     }
 
@@ -107,7 +104,7 @@ impl AnnotationCollector {
                     let lineno = i + 1;
                     if let Some((_, ann)) = line.rsplit_once("//~") {
                         let loc = Location {
-                            file: path.clone(),
+                            file: path.canon()?,
                             line: lineno,
                         };
                         let diag = Diagnostic::parse(&loc, ann)?;

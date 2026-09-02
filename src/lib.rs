@@ -7,7 +7,7 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::annotation::AnnotationCollector;
+use crate::{annotation::AnnotationCollector, util::PathExt};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -25,6 +25,7 @@ macro_rules! bail {
 }
 
 mod annotation;
+mod util;
 
 fn cargo() -> Command {
     Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
@@ -120,7 +121,7 @@ impl Config {
                     [..] => bail!("error message with multiple primary spans: {}", msg.message),
                 };
 
-                let path = primary.file_name.canonicalize()?;
+                let path = primary.file_name.canon()?;
 
                 let mut found = false;
                 for diag in annotations.query(&path, primary.line_start) {
